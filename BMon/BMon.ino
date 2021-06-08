@@ -1,4 +1,6 @@
 
+#include <WiFi.h>
+#include <FirebaseESP32.h>
 #include "DHT.h"
 
 // defaults
@@ -11,6 +13,9 @@
 #define LUM_HIGH = 75;
 #define MOIST_LOW = 25;
 #define MOIST_HIGH = 75;
+
+const char* db_url = "https://bmon-c19ea-default-rtdb.europe-west1.firebasedatabase.app/";
+const char* db_api_key = "AIzaSyDSzSbd3ZL81VDbo54UH7pDWqHAaN1AXM0";
 
 
 // led pins
