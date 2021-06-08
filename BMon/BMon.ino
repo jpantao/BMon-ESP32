@@ -1,6 +1,18 @@
 
 #include "DHT.h"
 
+// defaults
+// TODO: change values
+#define TEMP_LOW = 25;
+#define TEMP_HIGH = 75;
+#define HUM_LOW = 25;
+#define HUM_HIGH = 75;
+#define LUM_LOW = 25;
+#define LUM_HIGH = 75;
+#define MOIST_LOW = 25;
+#define MOIST_HIGH = 75;
+
+
 // led pins
 const int redLumPin = 6;
 const int greenLumPin = 7;
@@ -20,9 +32,10 @@ const int photoregistorPin = 1;
 const int dht11Pin = 3;
 const int moisturePin = 5;
 
-
 #define DHTTYPE DHT11
 DHT dht(dht11Pin, DHTTYPE); // DHT11
+
+
 
 #if defined(ARDUINO_ARCH_AVR)
     #define debug  Serial
@@ -58,7 +71,9 @@ void loop() {
   // Measurements
   read_temp_hum();
   read_lum();
-  
+  read_moist(); // not sure if it works
+
+    
  
   
   delay(5000); // wait before next cycle
@@ -86,10 +101,12 @@ void read_lum(){
   lum_val = analogRead(photoregistorPin);
   lum_val = map(lum_val, 0, 8191, 0, 100);
   lum_val = constrain(lum_val, 0, 100);
-  debug.print("lum value: ");
+  debug.print("Luminosity: ");
   debug.println(lum_val);
 }
 
 void read_moist(){
-  
+  moist_val = analogRead(moisturePin);
+  debug.print("Soil moisture: ");
+  debug.println(moist_val);
 }
