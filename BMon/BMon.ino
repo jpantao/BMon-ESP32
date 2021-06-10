@@ -5,6 +5,7 @@
 #include "addons/TokenHelper.h" // token generation process info.
 #include "addons/RTDBHelper.h"  // RTDB payload printing info and other helper functions.
 
+#define DHTTYPE DHT11               // DHT type
 #define DEVICE_UID "ESP32"          // Device ID
 #define WIFI_SSID "MEO-F6B5F0"      // WiFi name
 #define WIFI_PASSWORD "ec3e9334e7"  // WiFi password
@@ -13,13 +14,13 @@
 #define API_KEY "AIzaSyDSzSbd3ZL81VDbo54UH7pDWqHAaN1AXM0"; 
 #define DATABASE_URL "https://bmon-c19ea-default-rtdb.europe-west1.firebasedatabase.app/"; 
 
-String device_location = "home";  // Device Location config
-FirebaseData fbdo;                // Firebase Realtime Database Object
-FirebaseAuth auth;                // Firebase Authentication Object
-FirebaseConfig config;            // Firebase configuration Object
-String databasePath = "";         // Firebase database path
-String fuid = "";                 // Firebase Unique Identifier
-bool isAuthenticated = false;     // Store device authentication status
+String device_location = "Japanese Maple";  // Device Location config
+FirebaseData fbdo;                          // Firebase Realtime Database Object
+FirebaseAuth auth;                          // Firebase Authentication Object
+FirebaseConfig config;                      // Firebase configuration Object
+String database_path = "";                  // Firebase database path
+String fuid = "";                           // Firebase Unique Identifier
+bool is_authenticated = false;              // Store device authentication status
 
 // actuator pins
 const int humidifier      = 5;
@@ -41,7 +42,6 @@ const int photoregistorPin  = 1;
 const int dht11Pin          = 2;
 const int moisturePin       = 3;
 
-#define DHTTYPE DHT11
 DHT dht(dht11Pin, DHTTYPE); // DHT11
 
 // Debug log
@@ -64,7 +64,8 @@ int lum_high    = 75;
 int moist_low   = 25;
 int moist_high  = 75;
 
-float hum_temp_val[2] = {0};
+float temp_val  =  0;
+float hum_val = 0;
 float lum_val = 0;
 float moist_val = 0;
 
@@ -82,38 +83,10 @@ int cycle_counter = 0;
 
 void setup() {
 	debug.begin(115200);
-	
-	for(int i = 5; i <=17; i++){
-		pinMode(i, OUTPUT);
-	}
-
-	dht.begin();
-	wifi_init();
-	firebase_init();
-
-  temp_json.add("deviceuid", DEVICE_UID);
-  temp_json.add("name", "DHT11-Temp");
-  temp_json.add("type", "Temperature");
-  temp_json.add("location", device_location);
-  temp_json.add("value", hum_temp_val[1]);
-
-  hum_json.add("deviceuid", DEVICE_UID);
-  hum_json.add("name", "DHT11-Hum");
-  hum_json.add("type", "Humidity");
-  hum_json.add("location", device_location);
-  hum_json.add("value", hum_temp_val[0]);
-
-  lum_json.add("deviceuid", DEVICE_UID);
-  lum_json.add("name", "Photoregistor");
-  lum_json.add("type", "Luminosity");
-  lum_json.add("location", device_location);
-  lum_json.add("value", lum_val);
-
-  moist_json.add("deviceuid", DEVICE_UID);
-  moist_json.add("name", "Groove Moisture Sensor");
-  moist_json.add("type", "Soil moisture");
-  moist_json.add("location", device_location);
-  moist_json.add("value", moist_val);
+	setup_wifi();
+	setup_firebase();
+  setup_sensors();
+  setup_actuators();
 }
 
 
@@ -124,23 +97,20 @@ void loop() {
   
 	// read sensor data
   update_sensor_readings();
-
-  
 	
 	// sync with database if in a sync cycle
 	if(cycle_counter != 0 && cycle_counter % cycle_sync == 0){ 
     // TODO: read defaults from firebase
-    // TODO: upload averages to firebase
-    temp_json.set("value", hum_temp_val[1]);
-    hum_json.set("value", hum_temp_val[0]);
+    temp_json.set("value", temp_val);
+    hum_json.set("value", hum_val);
     lum_json.set("value", lum_val);
     moist_json.set("value", moist_val);
     upload_data();
-    log_averages();
+    // log_averages();
 	}
 
   // update leds' state
-  update_leds();
+  update_actuators();
   
 	debug.print("---- ");
 	debug.print(cycle_counter);
@@ -153,16 +123,11 @@ void loop() {
 // --- Update --- 
 
 void update_sensor_readings(){
-  float hum_temp_reading[2]  = {0};
-	// DHT11 read 
-	// Reading temperature or humidity takes about 250 milliseconds!
-	// Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-	if (dht.readTempAndHumidity(hum_temp_reading)) {
-	  debug.println("Failed to get temprature and humidity value.");
-    hum_temp_reading[0] = hum_temp_val[0];
-    hum_temp_reading[1] = hum_temp_val[1];
-	}
- 
+  
+  // DHT11
+  float temp_reading = dht.readTemperature();
+  float hum_reading  = dht.readHumidity();
+  
   // Photoregistor
   int lum_reading = analogRead(photoregistorPin);
   lum_reading = map(lum_reading, 0, 8191, 0, 100);
@@ -173,42 +138,47 @@ void update_sensor_readings(){
   moist_reading = map(moist_reading, 0, 8191, 0, 100);
   moist_reading = constrain(moist_reading, 0, 100);
 
-  // debug.print("Humidity: ");
-  // debug.println(hum_temp_reading[0]);
-  // debug.print("Temperature: ");
-  // debug.print(hum_temp_reading[1]);
-  // debug.println(" *C");
-  // debug.print("Luminosity: ");
-  // debug.println(reading);
-  // debug.print("Soil moisture: ");
-  // debug.println(moist_reading);
-
 
   // update values (weighted average)
-  hum_temp_val[0]= ((hum_temp_val[0]*cycle_counter) + hum_temp_reading[0]) / (cycle_counter+1);
-  hum_temp_val[1]=((hum_temp_val[1]*cycle_counter) + hum_temp_reading[1]) / (cycle_counter+1);
-  lum_val=((lum_val*cycle_counter) + lum_reading) / (cycle_counter+1);
-  moist_val=((moist_val*cycle_counter) + moist_reading) / (cycle_counter+1);
-  
-}
-
-void update_leds(){
-  clear_hum_led();
-  if (hum_temp_val[0] < hum_low) {
-    digitalWrite(blue_hum_pin, HIGH);
-  } else if (hum_temp_val[0] < hum_high) {
-    digitalWrite(green_hum_pin, HIGH);
-  } else{
-    digitalWrite(red_hum_pin, HIGH);
+  if ( !isnan(temp_reading) && !isnan(hum_reading)) {
+    temp_val = ((temp_val*cycle_counter) + temp_reading) / (cycle_counter+1);
+    hum_val = ((hum_val*cycle_counter) + hum_reading) / (cycle_counter+1);
+    debug.print("Temperature: ");
+    debug.print(temp_reading);
+    debug.println(" *C");
+    debug.print("Humidity: ");
+    debug.println(hum_reading);
+  } else {
+    debug.println("Failed to get temprature and humidity value.");
   }
 
+  lum_val=((lum_val*cycle_counter) + lum_reading) / (cycle_counter+1);
+  debug.print("Luminosity: ");
+  debug.println(lum_reading);
+
+  moist_val=((moist_val*cycle_counter) + moist_reading) / (cycle_counter+1);
+  debug.print("Soil moisture: ");
+  debug.println(moist_reading);
+}
+
+void update_actuators(){
+
   clear_temp_led();
-  if (hum_temp_val[1] < temp_low) {
+  if (temp_val < temp_low) {
     digitalWrite(blue_temp_pin, HIGH);
-  } else if (hum_temp_val[1] < temp_high) {
+  } else if (Atemp_val < temp_high) {
     digitalWrite(green_temp_pin, HIGH);
   } else{
     digitalWrite(red_temp_pin, HIGH);
+  }
+
+  clear_hum_led();
+  if (hum_val < hum_low) {
+    digitalWrite(blue_hum_pin, HIGH);
+  } else if (hum_val < hum_high) {
+    digitalWrite(green_hum_pin, HIGH);
+  } else{
+    digitalWrite(red_hum_pin, HIGH);
   }
 
   clear_lum_led();
@@ -229,16 +199,18 @@ void update_leds(){
     digitalWrite(red_moist_pin, HIGH);
   }
 
+  //TODO: add update to water irrigator
+
 }
 
 
 // --- Upload ---
 
 void upload_data(){
-  String temp_node = databasePath + "/temperature";
-  String hum_node = databasePath + "/humidity";
-  String lum_node = databasePath + "/luminosity";
-  String moist_node = databasePath + "/soil_moisture";
+  String temp_node = database_path + "/temperature";
+  String hum_node = database_path + "/humidity";
+  String lum_node = database_path + "/luminosity";
+  String moist_node = database_path + "/soil_moisture";
 
   if(!Firebase.setJSON(fbdo, temp_node.c_str(), temp_json)){
     debug.println("Failed to upload temperature json");
@@ -260,7 +232,51 @@ void upload_data(){
 
 // --- Init ---
 
-void wifi_init() { 
+void setup_sensors(){
+  dht.begin();
+  temp_json.add("deviceuid", DEVICE_UID);
+  temp_json.add("name", "DHT11-Temp");
+  temp_json.add("type", "Temperature");
+  temp_json.add("location", device_location);
+  temp_json.add("value", temp_val);
+
+  hum_json.add("deviceuid", DEVICE_UID);
+  hum_json.add("name", "DHT11-Hum");
+  hum_json.add("type", "Humidity");
+  hum_json.add("location", device_location);
+  hum_json.add("value", hum_val);
+
+  lum_json.add("deviceuid", DEVICE_UID);
+  lum_json.add("name", "Photoregistor");
+  lum_json.add("type", "Luminosity");
+  lum_json.add("location", device_location);
+  lum_json.add("value", lum_val);
+
+  moist_json.add("deviceuid", DEVICE_UID);
+  moist_json.add("name", "Groove Moisture Sensor");
+  moist_json.add("type", "Soil moisture");
+  moist_json.add("location", device_location);
+  moist_json.add("value", moist_val);
+}
+
+void setup_actuators(){
+  pinMode(red_temp_pin, OUTPUT); 
+  pinMode(green_temp_pin, OUTPUT); 
+  pinMode(blue_temp_pin, OUTPUT); 
+  pinMode(red_hum_pin, OUTPUT); 
+  pinMode(green_hum_pin, OUTPUT); 
+  pinMode(blue_hum_pin, OUTPUT); 
+  pinMode(red_lum_pin, OUTPUT); 
+  pinMode(green_lum_pin, OUTPUT); 
+  pinMode(blue_lum_pin, OUTPUT); 
+  pinMode(red_moist_pin, OUTPUT); 
+  pinMode(green_moist_pin, OUTPUT); 
+  pinMode(blue_moist_pin, OUTPUT); 
+  
+  pinMode(humidifier, OUTPUT); 
+}
+
+void setup_wifi() { 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to Wi-Fi"); 
   while (WiFi.status() != WL_CONNECTED){ 
@@ -273,7 +289,7 @@ void wifi_init() {
   Serial.println();
 }
 
-void firebase_init() {
+void setup_firebase() {
 	
 	config.api_key = API_KEY; 			    // configure firebase API Key
 	config.database_url = DATABASE_URL; // configure firebase realtime database url 
@@ -285,12 +301,12 @@ void firebase_init() {
 	// Sign in to firebase anonymously
   if (Firebase.signUp(&config, &auth, "", "")){
 	  Serial.println("Success");
-   	isAuthenticated = true;
- 		databasePath = "/" + device_location;
+   	is_authenticated = true;
+ 		database_path = "/" + device_location;
 	 	fuid = auth.token.uid.c_str();
 	} else {
  		Serial.printf("Failed, %s\n", config.signer.signupError.message.c_str()); 
-		isAuthenticated = false;
+		is_authenticated = false;
 	}
 
 	config.token_status_callback = tokenStatusCallback;	
