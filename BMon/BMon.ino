@@ -6,7 +6,8 @@
 #include "addons/RTDBHelper.h"  // RTDB payload printing info and other helper functions.
 
 #define DHTTYPE DHT11               // DHT type
-#define DEVICE_UID "BMon-Prototype"          // Device ID
+
+#define DEVICE_UID "BMon-Prototype" // Device ID
 #define WIFI_SSID "MEO-F6B5F0"      // WiFi name
 #define WIFI_PASSWORD "ec3e9334e7"  // WiFi password
 
@@ -54,7 +55,6 @@ DHT dht(dht11Pin, DHTTYPE); // DHT11
 #endif
 
 // defaults
-// TODO: change values
 float temp_low  = 10;
 float temp_high = 35;
 float hum_low   = 25;
@@ -66,8 +66,8 @@ int moist_high  = 75;
 bool humidifier_on = false;
 
 float temp_val  =  0;
-float hum_val = 0;
-float lum_val = 0;
+float hum_val   = 0;
+float lum_val   = 0;
 float moist_val = 0;
 
 FirebaseJson hum_json;
@@ -77,7 +77,7 @@ FirebaseJson moist_json;
 
 
 int cycle_delay = 5000; // cycle frequency (milliseconds)
-int sync_interval = 12;    // sync freqency in cycles
+int sync_interval = 12; // sync freqency in cycles
 int cycle_counter = 0;  // cycle counter
 
 void setup() {
@@ -86,6 +86,7 @@ void setup() {
 	setup_firebase();
   setup_sensors();
   setup_actuators();
+  upload_defaults();
 }
 
 
@@ -167,8 +168,8 @@ void update_sensor_readings(){
 
   // update values (weighted average)
   if ( !isnan(temp_reading) && !isnan(hum_reading)) {
-    temp_val = ((temp_val*cycle_counter) + temp_reading) / (cycle_counter+1);
-    hum_val = ((hum_val*cycle_counter) + hum_reading) / (cycle_counter+1);
+    temp_val = (temp_val + temp_reading) / 2;
+    hum_val = (hum_val + hum_reading) / 2;
     debug.print("Temperature: ");
     debug.print(temp_reading);
     debug.println(" *C");
@@ -178,18 +179,17 @@ void update_sensor_readings(){
     debug.println("Failed to get temprature and humidity value.");
   }
 
-  lum_val=((lum_val*cycle_counter) + lum_reading) / (cycle_counter+1);
+  lum_val= (lum_val + lum_reading) / 2;
   debug.print("Luminosity: ");
   debug.println(lum_reading);
 
-  moist_val=((moist_val*cycle_counter) + moist_reading) / (cycle_counter+1);
+  moist_val = (moist_val + moist_reading) / 2;
   debug.print("Soil moisture: ");
   debug.println(moist_reading);
 }
 
 void update_actuators(){
  
-
   clear_temp_led();
   if (temp_val < temp_low) {
     digitalWrite(blue_temp_pin, HIGH);
@@ -234,6 +234,32 @@ void update_actuators(){
 
 
 // --- Upload ---
+
+void upload_defaults(){
+  const String cycle_delay_node = database_path + "/config/cycle_delay";
+  const String sync_interval_node = database_path + "/config/sync_interval";
+  const String humidifier_on_node = database_path + "/config/humidifier_on";
+  const String hum_high_node = database_path + "/config/hum_high";
+  const String hum_low_node = database_path + "/config/hum_low";
+  const String lum_high_node = database_path + "/config/lum_high";
+  const String lum_low_node = database_path + "/config/lum_low";
+  const String moist_high_node = database_path + "/config/moist_high";
+  const String moist_low_node = database_path + "/config/moist_low";
+  const String temp_high_node = database_path + "/config/temp_high";
+  const String temp_low_node = database_path + "/config/temp_low";
+
+  Firebase.setInt(fbdo, cycle_delay_node.c_str(), cycle_delay);
+  Firebase.setInt(fbdo, sync_interval_node.c_str(), sync_interval);
+  Firebase.setBool(fbdo, humidifier_on_node.c_str(), humidifier_on);
+  Firebase.setFloat(fbdo, hum_high_node.c_str(), hum_high);
+  Firebase.setFloat(fbdo, hum_low_node.c_str(), hum_low);
+  Firebase.setInt(fbdo, lum_high_node.c_str(), lum_high);
+  Firebase.setInt(fbdo, lum_low_node.c_str(), lum_low);
+  Firebase.setInt(fbdo, moist_high_node.c_str(), moist_high);
+  Firebase.setInt(fbdo, moist_low_node.c_str(), moist_low);
+  Firebase.setFloat(fbdo, temp_high_node.c_str(), temp_high);
+  Firebase.setFloat(fbdo, temp_low_node.c_str(), temp_low);
+}
 
 void upload_data(){
   String temp_node = database_path + "/temperature";
