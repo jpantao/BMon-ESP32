@@ -6,7 +6,7 @@
 #include "addons/RTDBHelper.h"  // RTDB payload printing info and other helper functions.
 
 #define DHTTYPE DHT11               // DHT type
-#define DEVICE_UID "ESP32"          // Device ID
+#define DEVICE_UID "BMon-Prototype"          // Device ID
 #define WIFI_SSID "MEO-F6B5F0"      // WiFi name
 #define WIFI_PASSWORD "ec3e9334e7"  // WiFi password
 
@@ -55,14 +55,15 @@ DHT dht(dht11Pin, DHTTYPE); // DHT11
 
 // defaults
 // TODO: change values
-int temp_low    = 10;
-int temp_high   = 35;
-int hum_low     = 25;
-int hum_high    = 75;
+float temp_low  = 10;
+float temp_high = 35;
+float hum_low   = 25;
+float hum_high  = 75;
 int lum_low     = 25;
 int lum_high    = 75;
 int moist_low   = 25;
 int moist_high  = 75;
+bool humidifier_on = false;
 
 float temp_val  =  0;
 float hum_val = 0;
@@ -74,12 +75,10 @@ FirebaseJson temp_json;
 FirebaseJson lum_json;
 FirebaseJson moist_json;
 
-// cycle frequency (milliseconds)
-const int cycle_delay = 5*1000; // minutes
-// how many normal cycles to wait before sync with firebase
-const int cycle_sync = 1*60/(cycle_delay/1000); // sync each 1 minutes (depends on cycle_delay)
-// cycle counter
-int cycle_counter = 0;
+
+int cycle_delay = 5000; // cycle frequency (milliseconds)
+int sync_interval = 12;    // sync freqency in cycles
+int cycle_counter = 0;  // cycle counter
 
 void setup() {
 	debug.begin(115200);
@@ -99,8 +98,9 @@ void loop() {
   update_sensor_readings();
 	
 	// sync with database if in a sync cycle
-	if(cycle_counter != 0 && cycle_counter % cycle_sync == 0){ 
-    // TODO: read defaults from firebase
+	if(cycle_counter == 0 || cycle_counter % sync_interval == 0){ 
+    debug.println("Sync cycle");
+    update_config();
     temp_json.set("value", temp_val);
     hum_json.set("value", hum_val);
     lum_json.set("value", lum_val);
@@ -108,7 +108,7 @@ void loop() {
     upload_data();
     // log_averages();
 	}
-
+  
   // update leds' state
   update_actuators();
   
@@ -116,11 +116,37 @@ void loop() {
 	debug.print(cycle_counter);
 	debug.println(" Loop END ----");
 	cycle_counter++;
-	delay(5000); // wait before next cycle
+	delay(cycle_delay); // wait before next cycle
 }
 
 
 // --- Update --- 
+void update_config(){
+  const String cycle_delay_node = database_path + "/config/cycle_delay";
+  const String sync_interval_node = database_path + "/config/sync_interval";
+  const String humidifier_on_node = database_path + "/config/humidifier_on";
+  const String hum_high_node = database_path + "/config/hum_high";
+  const String hum_low_node = database_path + "/config/hum_low";
+  const String lum_high_node = database_path + "/config/lum_high";
+  const String lum_low_node = database_path + "/config/lum_low";
+  const String moist_high_node = database_path + "/config/moist_high";
+  const String moist_low_node = database_path + "/config/moist_low";
+  const String temp_high_node = database_path + "/config/temp_high";
+  const String temp_low_node = database_path + "/config/temp_low";
+
+  Firebase.getInt(fbdo, cycle_delay_node.c_str(), cycle_delay);
+  Firebase.getInt(fbdo, sync_interval_node.c_str(), sync_interval);
+  Firebase.getBool(fbdo, humidifier_on_node.c_str(), humidifier_on);
+  Firebase.getFloat(fbdo, hum_high_node.c_str(), hum_high);
+  Firebase.getFloat(fbdo, hum_low_node.c_str(), hum_low);
+  Firebase.getInt(fbdo, lum_high_node.c_str(), lum_high);
+  Firebase.getInt(fbdo, lum_low_node.c_str(), lum_low);
+  Firebase.getInt(fbdo, moist_high_node.c_str(), moist_high);
+  Firebase.getInt(fbdo, moist_low_node.c_str(), moist_low);
+  Firebase.getFloat(fbdo, temp_high_node.c_str(), temp_high);
+  Firebase.getFloat(fbdo, temp_low_node.c_str(), temp_low);
+
+}
 
 void update_sensor_readings(){
   
@@ -162,19 +188,24 @@ void update_sensor_readings(){
 }
 
 void update_actuators(){
+ 
 
   clear_temp_led();
   if (temp_val < temp_low) {
     digitalWrite(blue_temp_pin, HIGH);
-  } else if (Atemp_val < temp_high) {
+  } else if (temp_val < temp_high) {
     digitalWrite(green_temp_pin, HIGH);
   } else{
     digitalWrite(red_temp_pin, HIGH);
   }
 
+  digitalWrite(humidifier, LOW);
   clear_hum_led();
   if (hum_val < hum_low) {
     digitalWrite(blue_hum_pin, HIGH);
+    if(humidifier_on == 1){
+      digitalWrite(humidifier, HIGH);
+    }
   } else if (hum_val < hum_high) {
     digitalWrite(green_hum_pin, HIGH);
   } else{
@@ -198,9 +229,7 @@ void update_actuators(){
   } else{
     digitalWrite(red_moist_pin, HIGH);
   }
-
-  //TODO: add update to water irrigator
-
+  
 }
 
 
@@ -237,25 +266,21 @@ void setup_sensors(){
   temp_json.add("deviceuid", DEVICE_UID);
   temp_json.add("name", "DHT11-Temp");
   temp_json.add("type", "Temperature");
-  temp_json.add("location", device_location);
   temp_json.add("value", temp_val);
 
   hum_json.add("deviceuid", DEVICE_UID);
   hum_json.add("name", "DHT11-Hum");
   hum_json.add("type", "Humidity");
-  hum_json.add("location", device_location);
   hum_json.add("value", hum_val);
 
   lum_json.add("deviceuid", DEVICE_UID);
   lum_json.add("name", "Photoregistor");
   lum_json.add("type", "Luminosity");
-  lum_json.add("location", device_location);
   lum_json.add("value", lum_val);
 
   moist_json.add("deviceuid", DEVICE_UID);
   moist_json.add("name", "Groove Moisture Sensor");
   moist_json.add("type", "Soil moisture");
-  moist_json.add("location", device_location);
   moist_json.add("value", moist_val);
 }
 
