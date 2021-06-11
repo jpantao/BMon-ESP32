@@ -15,7 +15,7 @@
 #define API_KEY "AIzaSyDSzSbd3ZL81VDbo54UH7pDWqHAaN1AXM0"; 
 #define DATABASE_URL "https://bmon-c19ea-default-rtdb.europe-west1.firebasedatabase.app/"; 
 
-String device_location = "Japanese Maple";  // Device Location config
+String bonsai_id = "Japanese Maple";  // Device Location config
 FirebaseData fbdo;                          // Firebase Realtime Database Object
 FirebaseAuth auth;                          // Firebase Authentication Object
 FirebaseConfig config;                      // Firebase configuration Object
@@ -353,7 +353,7 @@ void setup_firebase() {
   if (Firebase.signUp(&config, &auth, "", "")){
 	  Serial.println("Success");
    	is_authenticated = true;
- 		database_path = "/" + device_location;
+ 		database_path = "/" + bonsai_id;
 	 	fuid = auth.token.uid.c_str();
 	} else {
  		Serial.printf("Failed, %s\n", config.signer.signupError.message.c_str()); 
